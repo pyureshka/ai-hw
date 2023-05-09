@@ -1,5 +1,3 @@
-// import brain from "brain.js";
-
 function DCanvas(el) {
   const ctx = el.getContext("2d");
   const pixel = 20;
@@ -125,6 +123,13 @@ function DCanvas(el) {
 let vector = [];
 let net = null;
 let trainData = [];
+const model = tf.sequential();
+
+function updateMsg(val) {
+  msg.innerHTML = val;
+}
+
+let msg = document.getElementById("msg");
 
 // инициализируем холст
 const d = new DCanvas(document.getElementById("canv"));
@@ -133,27 +138,87 @@ function onClearCanvas() {
   d.clear();
 }
 
-function onTrain() {
+function onData() {
   vector = d.calculate(true);
 
   // train
   if (confirm("Positive?")) {
     trainData.push({
-      input: vector,
-      output: { positive: 1 },
+      input: vector, // одномерный массив размером 625
+      output: [1, 0], // класс "positive"
     });
+
+    d.clear();
   } else {
     trainData.push({
-      input: vector,
-      output: { negative: 1 },
+      input: vector, // одномерный массив размером 625
+      output: [0, 1], // класс "negative"
     });
+
+    d.clear();
   }
 }
 
-function getResult() {
-  net = new brain.NeuralNetwork();
-  net.train(trainData, { log: true });
+function onTrain() {
+  updateMsg("Тренируем...");
 
-  const result = brain.likely(d.calculate(), net);
-  alert(result);
+  model.add(
+    tf.layers.conv1d({
+      inputShape: [625, 1], // длина одномерного входного массива
+      filters: 16, // количество фильтров
+      kernelSize: 3, // размер ядра свертки
+      activation: "relu", // функция активации
+    })
+  );
+
+  model.add(
+    tf.layers.maxPooling1d({
+      poolSize: 2, // размер пула
+      strides: 2, // шаг перемещения
+    })
+  );
+
+  model.add(tf.layers.flatten());
+
+  model.add(
+    tf.layers.dense({
+      units: 64, // количество нейронов в слое
+      activation: "relu", // функция активации
+    })
+  );
+
+  model.add(
+    tf.layers.dense({
+      units: 2, // количество нейронов в слое
+      activation: "softmax", // функция активации
+    })
+  );
+
+  model.compile({
+    loss: "meanSquaredError", // функция потерь
+    optimizer: "adam", // оптимизатор
+  });
+
+  const trainX = tf.tensor(
+    trainData.map((data) => data.input),
+    [trainData.length, 625, 1]
+  );
+  const trainY = tf.tensor(
+    trainData.map((data) => data.output, [trainData.length, 2, 1])
+  );
+
+  model
+    .fit(trainX, trainY, {
+      epochs: 5, // количество эпох
+    })
+    .then(() => {
+      updateMsg("Завершено!");
+    });
+}
+
+function getResult() {
+  const testX = tf.tensor(d.calculate(), [1, 625, 1]);
+  const prediction = model.predict(testX);
+  const result = prediction.dataSync()[0] > 0.5 ? "positive" : "negative";
+  updateMsg(result);
 }
